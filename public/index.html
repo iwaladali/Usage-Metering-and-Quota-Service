@@ -1,0 +1,290 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Usage Metering Tester</title>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 30px 16px;
+      font-family: Arial, sans-serif;
+      background: #f3f5f9;
+      color: #182230;
+    }
+
+    main {
+      max-width: 750px;
+      margin: auto;
+    }
+
+    .card {
+      background: white;
+      padding: 22px;
+      margin-bottom: 18px;
+      border: 1px solid #dce2eb;
+      border-radius: 12px;
+    }
+
+    h1 { margin-top: 0; }
+    h2 { font-size: 19px; margin-top: 0; }
+
+    label {
+      display: block;
+      margin: 13px 0 6px;
+      font-weight: bold;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #cbd3df;
+      border-radius: 7px;
+      font: inherit;
+    }
+
+    textarea {
+      min-height: 100px;
+      font-family: monospace;
+    }
+
+    button {
+      padding: 10px 14px;
+      margin: 12px 5px 0 0;
+      border: 0;
+      border-radius: 7px;
+      background: #2458d3;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #e5eaf3;
+      color: #182230;
+    }
+
+    pre {
+      background: #111827;
+      color: #e5e7eb;
+      padding: 15px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      min-height: 70px;
+    }
+
+    .hint {
+      color: #667085;
+      font-size: 13px;
+    }
+
+    #status { font-weight: bold; }
+  </style>
+</head>
+
+<body>
+<main>
+  <h1>Usage Metering API Tester</h1>
+  <p class="hint">Test your Express backend and inspect API responses.</p>
+
+  <section class="card">
+    <h2>Connection</h2>
+
+    <label for="baseUrl">Backend URL</label>
+    <input id="baseUrl" value="http://localhost:3000" />
+
+    <label for="apiKey">Account API Key</label>
+    <input id="apiKey" type="password" placeholder="Paste API key" />
+
+    <label for="userId">External User ID</label>
+    <input id="userId" value="user-123" />
+  </section>
+
+  <section class="card">
+    <h2>Consume Units</h2>
+
+    <label for="units">Requested units</label>
+    <input id="units" type="number" min="1" step="1" value="250" />
+
+    <label for="idempotencyKey">Idempotency Key</label>
+    <input id="idempotencyKey" />
+
+    <button id="newKey" class="secondary">Generate new key</button>
+    <button id="consume">Send consume request</button>
+    <button id="repeat" class="secondary">Repeat same request</button>
+
+    <p class="hint">
+      Repeating the same key should not consume quota twice.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Other API Endpoints</h2>
+
+    <label for="method">HTTP Method</label>
+    <select id="method">
+      <option>GET</option>
+      <option selected>POST</option>
+      <option>PATCH</option>
+      <option>DELETE</option>
+    </select>
+
+    <label for="endpoint">Endpoint path</label>
+    <input id="endpoint" value="/api/users" />
+
+    <label for="body">JSON Body</label>
+    <textarea id="body">{
+  "externalUserId": "user-123",
+  "name": "Test User",
+  "plan": "Starter"
+}</textarea>
+
+    <button id="sendCustom">Send request</button>
+  </section>
+
+  <section class="card">
+    <h2>Response</h2>
+    <p id="status">No request sent yet.</p>
+    <pre id="output">The server response will appear here.</pre>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  function generateKey() {
+    $("idempotencyKey").value = crypto.randomUUID();
+  }
+
+  function getBaseUrl() {
+    return $("baseUrl").value.trim().replace(/\/+$/, "");
+  }
+
+  function getAuthHeaders() {
+    const key = $("apiKey").value.trim();
+
+    return key
+      ? { Authorization: `Bearer ${key}` }
+      : {};
+  }
+
+  function display(status, data) {
+    $("status").textContent = status;
+    $("output").textContent =
+      typeof data === "string"
+        ? data
+        : JSON.stringify(data, null, 2);
+  }
+
+  async function sendRequest(url, options) {
+    display("Sending request...", "");
+
+    try {
+      const response = await fetch(url, options);
+      const text = await response.text();
+
+      let data;
+      try {
+        data = text ? JSON.parse(text) : "";
+      } catch {
+        data = text;
+      }
+
+      display(
+        `HTTP ${response.status} ${response.statusText}`,
+        data
+      );
+    } catch (error) {
+      display("Request failed", {
+        error: String(error),
+        suggestions: [
+          "Check that the backend is running.",
+          "Check the backend URL and port.",
+          "Check browser CORS settings if the page is hosted separately."
+        ]
+      });
+    }
+  }
+
+  function consume() {
+    const units = Number($("units").value);
+    const externalUserId = $("userId").value.trim();
+    const idempotencyKey = $("idempotencyKey").value.trim();
+
+    if (!$("apiKey").value.trim()) {
+      display("Validation error", "Enter your API key.");
+      return;
+    }
+
+    if (!externalUserId) {
+      display("Validation error", "Enter an external user ID.");
+      return;
+    }
+
+    if (!Number.isSafeInteger(units) || units <= 0) {
+      display("Validation error", "Units must be a positive integer.");
+      return;
+    }
+
+    if (!idempotencyKey) {
+      display("Validation error", "Generate an idempotency key first.");
+      return;
+    }
+
+    sendRequest(`${getBaseUrl()}/api/usage/consume`, {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey
+      },
+      body: JSON.stringify({
+        externalUserId,
+        units
+      })
+    });
+  }
+
+  $("newKey").addEventListener("click", generateKey);
+  $("consume").addEventListener("click", consume);
+  $("repeat").addEventListener("click", consume);
+
+  $("sendCustom").addEventListener("click", () => {
+    const method = $("method").value;
+    const endpoint = $("endpoint").value.trim();
+
+    if (!endpoint.startsWith("/")) {
+      display("Validation error", "Endpoint must start with /.");
+      return;
+    }
+
+    let body;
+
+    if (!["GET", "DELETE"].includes(method)) {
+      try {
+        body = JSON.stringify(JSON.parse($("body").value));
+      } catch {
+        display("Validation error", "Request body must be valid JSON.");
+        return;
+      }
+    }
+
+    sendRequest(getBaseUrl() + endpoint, {
+      method,
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json"
+      },
+      ...(body !== undefined ? { body } : {})
+    });
+  });
+
+  generateKey();
+</script>
+</body>
+</html>
